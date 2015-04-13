@@ -28,19 +28,48 @@ $Promise.prototype.then = function( successCb, errorCb ) {
   this.callHandler();
 }
 
+$Promise.prototype.catch = function( func ) {
+  this.then( null, func );
+}
+
 $Promise.prototype.callHandler = function() {
   
   // check if there are success or error handler
   // if yes, run function
   // else do nothing
-
+/*
   if (this.handlerGroups.length > 0){
-    if (this.state === 'resolved'){
+    if (this.state === 'resolved' || this.state === 'rejected'){
       //var cb = this.handlerGroups.pop();
       var cb = this.handlerGroups.splice(0, 1)[0];
       var data = this.value; 
-      cb.successCb( data );
+      if (cb.successCb)
+        cb.successCb( data );
+      else if (cb.errorCb)
+        cb.errorCb( data );
     }
+  }
+*/
+  if (this.handlerGroups.length > 0){
+    
+    if (this.state === 'resolved' ){
+      //var cb = this.handlerGroups.pop();
+      var cb = this.handlerGroups.splice(0, 1)[0];
+      var data = this.value; 
+
+      if (cb.successCb)
+        cb.successCb( data );
+    }
+    
+    if (this.state === 'rejected'){
+      var cb = this.handlerGroups.splice(0, 1)[0];
+      var data = this.value; 
+
+      if (cb.errorCb)
+        cb.errorCb( data );
+
+    } 
+
   }
 
 }
@@ -56,12 +85,10 @@ Deferral.prototype.resolve = function( data ) {
   if (this.$promise.state === 'pending'){
     this.$promise.state = 'resolved';
     this.$promise.value = data;
-    console.log(this.$promise.handlerGroups);
     
     while(this.$promise.handlerGroups.length > 0){
       this.$promise.callHandler();
     }
-    console.log(this.$promise.handlerGroups)
   }
 }
 
@@ -70,7 +97,10 @@ Deferral.prototype.reject = function( err ){
   if (this.$promise.state === 'pending'){ 
     this.$promise.state = 'rejected';
     this.$promise.value = err;
-    this.$promise.callHandler();
+
+    while (this.$promise.handlerGroups.length > 0){
+      this.$promise.callHandler();
+    }
   }
 
 };
