@@ -10,6 +10,10 @@ var $Promise = function() {
 
 $Promise.prototype.then = function( successCb, errorCb ) {
   
+  var self = this;
+
+  this.forwarder = defer();
+
   if (typeof successCb !== 'function'){
     successCb = false;
   }
@@ -17,19 +21,26 @@ $Promise.prototype.then = function( successCb, errorCb ) {
   if ( typeof errorCb !== 'function'){
     errorCb = false;
   }
-  
+
+  if (arguments.length === 0) {
+    this.forwarder.$promise = this;
+  }
+
   this.handlerGroups.push(
     {
       successCb: successCb,
-      errorCb: errorCb
+      errorCb: errorCb,
+      forwarder: self.forwarder 
     }    
   );
 
   this.callHandler();
+
+  return this.forwarder.$promise;
 }
 
 $Promise.prototype.catch = function( func ) {
-  this.then( null, func );
+  return this.then( null, func );
 }
 
 $Promise.prototype.callHandler = function() {
@@ -37,19 +48,7 @@ $Promise.prototype.callHandler = function() {
   // check if there are success or error handler
   // if yes, run function
   // else do nothing
-/*
-  if (this.handlerGroups.length > 0){
-    if (this.state === 'resolved' || this.state === 'rejected'){
-      //var cb = this.handlerGroups.pop();
-      var cb = this.handlerGroups.splice(0, 1)[0];
-      var data = this.value; 
-      if (cb.successCb)
-        cb.successCb( data );
-      else if (cb.errorCb)
-        cb.errorCb( data );
-    }
-  }
-*/
+
   if (this.handlerGroups.length > 0){
     
     if (this.state === 'resolved' ){
@@ -57,16 +56,42 @@ $Promise.prototype.callHandler = function() {
       var cb = this.handlerGroups.splice(0, 1)[0];
       var data = this.value; 
 
-      if (cb.successCb)
-        cb.successCb( data );
+      if (cb.successCb) {
+        try {
+          var successValue = cb.successCb( data );
+
+          if (successValue instanceof $Promise){
+            console.log('$Promise');
+            this.forwarder.resolve( successValue.value );
+          }else{
+            this.forwarder.resolve( successValue );
+          }
+        } catch ( e ){ 
+          this.forwarder.reject( 'err' );
+          // this.forwarder.$promise.state = 'rejected';
+          // this.forwarder.$promise.value = 'err';
+        };
+      }
+        
     }
     
     if (this.state === 'rejected'){
       var cb = this.handlerGroups.splice(0, 1)[0];
       var data = this.value; 
 
-      if (cb.errorCb)
-        cb.errorCb( data );
+      if (cb.errorCb) {
+        try {
+          var errorValue = cb.errorCb( data );
+          this.forwarder.resolve( errorValue );
+          // this.forwarder.$promise.state = 'resolved';
+          // this.forwarder.$promise.value = errorValue;
+        } catch ( e ) {
+          this.forwarder.reject( 'err' );
+          // this.forwarder.$promise.state = 'rejected';
+          // this.forwarder.$promise.value = 'err';
+        }
+      }
+        
 
     } 
 
