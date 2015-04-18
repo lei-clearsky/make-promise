@@ -1,7 +1,13 @@
 /*----------------------------------------------------------------
 Promises Workshop: build the pledge.js deferral-style promise library
 ----------------------------------------------------------------*/
-// YOUR CODE HERE:
+
+var HandlerGroup = function (successCb, errorCb) {
+  this.successCb = (typeof successCb === 'function') ? successCb : null;
+  this.errorCb = (typeof errorCb === 'function') ? errorCb : null;
+  this.forwarder = new Deferral();
+} 
+
 var $Promise = function() {
   this.state = 'pending';
   this.value = null;
@@ -10,33 +16,11 @@ var $Promise = function() {
 
 $Promise.prototype.then = function( successCb, errorCb ) {
   
-  var self = this;
+  var newGroup = new HandlerGroup ( successCb, errorCb );
+  this.handlerGroups.push(newGroup);
+  if ( this.state !== 'pending' ) this.callHandler();
 
-  this.forwarder = defer();
-
-  if (typeof successCb !== 'function'){
-    successCb = false;
-  }
-  
-  if ( typeof errorCb !== 'function'){
-    errorCb = false;
-  }
-
-  if (arguments.length === 0) {
-    this.forwarder.$promise = this;
-  }
-
-  this.handlerGroups.push(
-    {
-      successCb: successCb,
-      errorCb: errorCb,
-      forwarder: self.forwarder 
-    }    
-  );
-
-  this.callHandler();
-
-  return this.forwarder.$promise;
+  return newGroup.forwarder.$promise;
 }
 
 $Promise.prototype.catch = function( func ) {
@@ -44,97 +28,64 @@ $Promise.prototype.catch = function( func ) {
 }
 
 $Promise.prototype.callHandler = function() {
+
+  var cb, handler, data,  output;
   
-  // check if there are success or error handler
-  // if yes, run function
-  // else do nothing
+  data = this.value;
 
-  if (this.handlerGroups.length > 0){
+  while (this.handlerGroups.length) {
+    cb = this.handlerGroups.shift();
+    handler = (this.state === 'resolved') ? cb.successCb : cb.errorCb;
     
-    if (this.state === 'resolved' ){
-      //var cb = this.handlerGroups.pop();
-      var cb = this.handlerGroups.splice(0, 1)[0];
-      var data = this.value; 
+    if (handler) {
+      try {
+        output = cb( data );
 
-      if (cb.successCb) {
-        try {
-          var successValue = cb.successCb( data );
-
-          if (successValue instanceof $Promise){
-            console.log('$Promise');
-            this.forwarder.resolve( successValue.value );
-          }else{
-            this.forwarder.resolve( successValue );
-          }
-        } catch ( e ){ 
-          this.forwarder.reject( 'err' );
-          // this.forwarder.$promise.state = 'rejected';
-          // this.forwarder.$promise.value = 'err';
-        };
-      }
+        if (output instanceof $Promise) cb.forwarder.assimilate(output);
+        else cb.forwarder.resolve( output );
         
+      } catch ( err ){ 
+        cb.forwarder.reject( 'err' );
+      };
     }
-    
-    if (this.state === 'rejected'){
-      var cb = this.handlerGroups.splice(0, 1)[0];
-      var data = this.value; 
-
-      if (cb.errorCb) {
-        try {
-          var errorValue = cb.errorCb( data );
-          this.forwarder.resolve( errorValue );
-          // this.forwarder.$promise.state = 'resolved';
-          // this.forwarder.$promise.value = errorValue;
-        } catch ( e ) {
-          this.forwarder.reject( 'err' );
-          // this.forwarder.$promise.state = 'rejected';
-          // this.forwarder.$promise.value = 'err';
-        }
-      }
-        
-
-    } 
-
+    else if (this.state === 'resolved') cb.forwarder.resolve( data );
+    else if (this.state === 'rejected') cb.forwarder.reject( data );
   }
 
 }
 
 var Deferral = function() {
-  
   this.$promise = new $Promise();
+}
 
+Deferral.prototype.assimilate = function( returnedPromise ) {
+  var forwarder = this;
+  returnedPromise.then(
+    function(data){ forwarder.resolve(data); };
+    function(reason){ forwarder.reject(reason); };    
+  );
 }
 
 Deferral.prototype.resolve = function( data ) {
-    
-  if (this.$promise.state === 'pending'){
-    this.$promise.state = 'resolved';
-    this.$promise.value = data;
-    
-    while(this.$promise.handlerGroups.length > 0){
-      this.$promise.callHandler();
-    }
-  }
+  this.settle( 'resolved', data );  
 }
 
-Deferral.prototype.reject = function( err ){
-    
-  if (this.$promise.state === 'pending'){ 
-    this.$promise.state = 'rejected';
-    this.$promise.value = err;
-
-    while (this.$promise.handlerGroups.length > 0){
-      this.$promise.callHandler();
-    }
-  }
-
+Deferral.prototype.reject = function( reason ){
+  this.settle( 'rejected', reason );
 };
+
+Deferral.prototype.settle = function( state, value ){
+  var promise = this.$promise;
+  if (promise.state === 'pending'){ 
+    promise.state = state;
+    promise.value = value;
+    promise.callHandler();
+  }
+}
 
 var defer = function() {
   return new Deferral();
 }
-
-
 
 /*-------------------------------------------------------
 The spec was designed to work with Test'Em, so we don't
